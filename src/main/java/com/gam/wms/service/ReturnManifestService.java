@@ -10,6 +10,8 @@ import com.gam.wms.repository.ProductRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
+
 @Service
 public class ReturnManifestService {
 
@@ -84,4 +86,43 @@ public class ReturnManifestService {
 
         return manifest;
     }
+
+
+    public Optional<ManifestEntity> findByManifestCode(String manifestCode) {
+        return manifestRepository.findByManifestCode(manifestCode);
+    }
+
+    public ManifestEntity saveOrUpdateManifest(ManifestEntity payload) {
+        // 1. Busca o manifesto existente no banco pelo código (ex: ROM-9867)
+        ManifestEntity existingManifest = manifestRepository.findByManifestCode(payload.getManifestCode())
+                .orElseThrow(() -> new RuntimeException("Romaneio não encontrado: " + payload.getManifestCode()));
+
+        // 2. Atualiza o status se necessário
+        existingManifest.setStatus(payload.getStatus());
+
+        // 3. Percorre as faturas e os itens para atualizar a quantidade conferida (checkedQty)
+        if (payload.getInvoices() != null) {
+            payload.getInvoices().forEach(incomingInv -> {
+                existingManifest.getInvoices().stream()
+                        .filter(inv -> inv.getNfNumber().equals(incomingInv.getNfNumber()))
+                        .findFirst()
+                        .ifPresent(targetInv -> {
+                            incomingInv.getItems().forEach(incomingItem -> {
+                                targetInv.getItems().stream()
+                                        .filter(item -> item.getId().equals(incomingItem.getId()) ||
+                                                item.getMaterialCode().equals(incomingItem.getMaterialCode()))
+                                        .findFirst()
+                                        .ifPresent(targetItem -> {
+                                            // Atualiza a quantidade conferida com o valor bipado na coletora
+                                            targetItem.setCheckedQty(incomingItem.getCheckedQty());
+                                        });
+                            });
+                        });
+            });
+        }
+
+        // 4. Salva as alterações no banco de dados
+        return manifestRepository.save(existingManifest);
+    }
+
 }

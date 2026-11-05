@@ -4,6 +4,7 @@ package com.gam.wms.model;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
@@ -24,10 +25,10 @@ public class ManifestEntity {
     private LocalDateTime createdAt =  LocalDateTime.now();
 
     @OneToMany(mappedBy = "manifest", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private List<InvoiceEntity> invoices;
+    private List<InvoiceEntity> invoices = new ArrayList<>();
 
     @OneToMany(mappedBy = "manifest", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private List<TimelineEntity> timelineHistories;
+    private List<TimelineEntity> timelineHistories = new ArrayList<>();
 
     public ManifestEntity() {
     }

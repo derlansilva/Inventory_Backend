@@ -1,8 +1,10 @@
 package com.gam.wms.model;
 
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
@@ -13,24 +15,26 @@ public class InvoiceEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "nf_number", nullable = false, unique = true)
+    @Column(name = "nf_number")
     private String nfNumber;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "manifest_id", nullable = false)
-    private ManifestEntity manifest;
-
-    @Column(name = "customer_name", nullable = false)
+    @Column(name = "customer_name")
     private String customerName;
 
-    @Column(name = "sales_org", nullable = false)
+    @Column(name = "sales_org")
     private String salesOrg;
 
-    @Column(name = "distribution_channel", nullable = false)
+    @Column(name = "distribution_channel")
     private String distributionChannel;
 
-    @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private List<ReturnItemEntity> items;
+    @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, fetch = FetchType.EAGER, orphanRemoval = true)
+    private List<ReturnItemEntity> items = new ArrayList<>();
+
+    // EVITA A RECURSÃO INFINITA
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "manifest_id", nullable = false)
+    @JsonIgnore
+    private ManifestEntity manifest;
 
     // Construtores, Getters e Setters
     public InvoiceEntity() {}

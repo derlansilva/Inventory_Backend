@@ -1,6 +1,7 @@
 package com.gam.wms.model;
 
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 
 import java.time.LocalDate;
@@ -13,27 +14,19 @@ public class ReturnItemEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "invoice_id", nullable = false)
-    private InvoiceEntity invoice;
-
-    @Column(name = "material_code", nullable = false)
+    @Column(name = "material_code")
     private String materialCode;
 
-    @Column(nullable = false)
     private String description;
 
-    @Column(name = "note_qty", nullable = false)
+    @Column(name = "note_qty")
     private Integer noteQty;
 
     @Column(name = "checked_qty")
-    private Integer checkedQty = 0;
+    private Integer checkedQty;
 
     @Column(name = "damaged_qty")
-    private Integer damagedQty = 0;
-
-    @Column(name = "specific_reason")
-    private String specificReason;
+    private Integer damagedQty;
 
     private String batch;
 
@@ -41,6 +34,15 @@ public class ReturnItemEntity {
     private LocalDate expiryDate;
 
     private String disposition;
+
+    @Column(name = "specific_reason")
+    private String specificReason;
+
+    // EVITA A RECURSÃO INFINITA
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "invoice_id", nullable = false)
+    @JsonIgnore
+    private InvoiceEntity invoice;
 
     // Construtores, Getters e Setters
     public ReturnItemEntity() {}
@@ -72,9 +74,21 @@ public class ReturnItemEntity {
     public String getBatch() { return batch; }
     public void setBatch(String batch) { this.batch = batch; }
 
-    public LocalDate getExpiryDate() { return expiryDate; }
-    public void setExpiryDate(LocalDate expiryDate) { this.expiryDate = expiryDate; }
+    public LocalDate getExpiryDate() {
+        return expiryDate;
+    }
 
-    public String getDisposition() { return disposition; }
-    public void setDisposition(String disposition) { this.disposition = disposition; }
+    public void setExpiryDate(LocalDate expiryDate) {
+        this.expiryDate = expiryDate;
+    }
+
+    public String getDisposition() {
+        return disposition;
+    }
+
+    public void setDisposition(String disposition) {
+        this.disposition = disposition;
+    }
+
+
 }
