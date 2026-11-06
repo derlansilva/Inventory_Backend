@@ -1,128 +1,180 @@
 package com.gam.wms.service;
 
 import com.gam.wms.dto.ReturnManifestRequestDTO;
-import com.gam.wms.model.InvoiceEntity;
-import com.gam.wms.model.ManifestEntity;
-import com.gam.wms.model.ProductEntity;
-import com.gam.wms.repository.InvoiceRepository;
-import com.gam.wms.repository.ManifestRepository;
-import com.gam.wms.repository.ProductRepository;
+import com.gam.wms.model.*;
+import com.gam.wms.repository.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 @Service
 public class ReturnManifestService {
 
     private final ManifestRepository manifestRepository;
+    private final StockRepository stockRepository; // Usaremos o seu repositório original
+    private final ProductRepository productRepository;
+    private final ReturnItemRepository returnItemRepository;
     private final InvoiceRepository invoiceRepository;
-    private final ProductRepository productRepository; // Injetado aqui
 
     public ReturnManifestService(ManifestRepository manifestRepository,
                                  InvoiceRepository invoiceRepository,
-                                 ProductRepository productRepository) {
+                                 ProductRepository productRepository,
+                                 ReturnItemRepository returnItemRepository,
+                                 StockRepository stockRepository, ReturnItemRepository returnItemRepository1, InvoiceRepository invoiceRepository1) {
         this.manifestRepository = manifestRepository;
-        this.invoiceRepository = invoiceRepository;
+        this.stockRepository = stockRepository;
         this.productRepository = productRepository;
+        this.returnItemRepository = returnItemRepository1;
+        this.invoiceRepository = invoiceRepository1;
     }
 
     @Transactional
     public ManifestEntity processReturnManifest(ReturnManifestRequestDTO request) {
-        // 1. Busca ou cria o Romaneio Principal
-        ManifestEntity manifest = manifestRepository.findByManifestCode(request.getManifestCode())
-                .orElseGet(() -> {
-                    ManifestEntity newManifest = new ManifestEntity();
-                    newManifest.setManifestCode(request.getManifestCode());
-                    newManifest.setStatus("EM_CONFERENCIA");
-                    return manifestRepository.save(newManifest);
-                });
+        System.out.println("=== 1. INICIANDO PROCESSAMENTO DO ROMANEIO: " + request.getManifestCode());
 
-        // 2. Itera sobre o array de notas fiscais enviadas
+        // 1. Cria o Manifesto (sem salvar ainda)
+        ManifestEntity manifest = new ManifestEntity();
+        manifest.setManifestCode(request.getManifestCode());
+        manifest.setStatus("ABERTO");
+        manifest.setInvoices(new ArrayList<>()); // Garante que a lista não é nula
+
         if (request.getInvoices() != null) {
-            for (ReturnManifestRequestDTO.InvoiceDataDTO invDto : request.getInvoices()) {
+            for (var invDto : request.getInvoices()) {
+                // 2. Cria a Nota e VINCULA ao Manifesto
+                InvoiceEntity invoice = new InvoiceEntity();
+                invoice.setManifest(manifest); // O PAI
+                invoice.setNfNumber(invDto.getNfNumber());
+                invoice.setCustomerName(invDto.getCustomerName());
+                invoice.setSalesOrg("1000");
+                invoice.setDistributionChannel("10");
+                invoice.setItems(new ArrayList<>()); // Garante que a lista não é nula
 
-                InvoiceEntity invoice = invoiceRepository.findByNfNumber(invDto.getNfNumber())
-                        .orElseGet(() -> {
-                            InvoiceEntity newInvoice = new InvoiceEntity();
-                            newInvoice.setNfNumber(invDto.getNfNumber());
-                            newInvoice.setManifest(manifest);
-                            newInvoice.setCustomerName(invDto.getCustomerName() != null ? invDto.getCustomerName() : "Cliente Padrão");
-                            newInvoice.setSalesOrg(invDto.getSalesOrg() != null ? invDto.getSalesOrg() : "2000");
-                            newInvoice.setDistributionChannel(invDto.getDistributionChannel() != null ? invDto.getDistributionChannel() : "10");
-                            return invoiceRepository.save(newInvoice);
-                        });
-
-                // 3. Itera sobre os itens e valida se o produto já existe na base
                 if (invDto.getItems() != null) {
-                    for (ReturnManifestRequestDTO.ItemDataDTO itemDto : invDto.getItems()) {
+                    for (var itemDto : invDto.getItems()) {
+                        String codigo = itemDto.getCode();
 
-                        // VERIFICAÇÃO: Se já existe o produto, apenas busca. Se não existe, cria na base.
-                        ProductEntity product = productRepository.findByMaterialCode(itemDto.getMaterialCode())
-                                .orElseGet(() -> {
-                                    ProductEntity newProduct = new ProductEntity();
-                                    newProduct.setMaterialCode(itemDto.getMaterialCode());
-                                    newProduct.setDescription(itemDto.getDescription());
-                                    return newProduct;
-                                });
+                        if (codigo != null && !productRepository.existsByMaterialCode(codigo)) {
+                            ProductEntity newProduct = new ProductEntity();
+                            newProduct.setMaterialCode(codigo);
+                            newProduct.setDescription(itemDto.getDesc() != null ? itemDto.getDesc() : "Produto XML");
+                            newProduct.setCategory("FARMACIA");
+                            productRepository.saveAndFlush(newProduct);
+                        }
 
-                        // Atualiza os dados da relação atual (Nota, Quantidades e Estoque)
-                        product.setInvoice(invoice);
-                        product.setNoteQty(itemDto.getNoteQty());
-                        product.setAvailableQty(itemDto.getAvailableQty() != null ? itemDto.getAvailableQty() : 0);
-                        product.setDamagedQty(itemDto.getDamagedQty() != null ? itemDto.getDamagedQty() : 0);
-                        product.setReservedQty(itemDto.getReservedQty() != null ? itemDto.getReservedQty() : 0);
-                        product.setSpecificReason(itemDto.getSpecificReason());
-                        product.setBatch(itemDto.getBatch());
-                        product.setExpiryDate(itemDto.getExpiryDate());
-                        product.setDisposition(itemDto.getDisposition());
+                        // 3. Cria o Item e VINCULA à Nota
+                        ReturnItemEntity item = new ReturnItemEntity();
+                        item.setInvoice(invoice); // O PAI
+                        item.setMaterialCode(codigo);
+                        item.setNoteQty(itemDto.getNoteQty());
+                        item.setCheckedQty(0);
+                        item.setDamagedQty(itemDto.getDamagedQty() != null ? itemDto.getDamagedQty() : 0);
+                        item.setBatch(itemDto.getBatch() != null ? itemDto.getBatch() : "S/L");
+                        item.setSpecificReason(itemDto.getSpecificReason());
 
-                        // Salva ou atualiza o produto no PostgreSQL
-                        productRepository.save(product);
+                        // O SEGREDO: Adiciona o item na lista da Nota
+                        invoice.getItems().add(item);
+
+                        // Atualiza o Estoque
+                        stockRepository.addOrUpdateStock(
+                                codigo,
+                                "05-DEVOLUCAO",
+                                itemDto.getNoteQty(),
+                                item.getBatch()
+                        );
                     }
                 }
+                // O SEGREDO: Adiciona a nota na lista do Manifesto
+                manifest.getInvoices().add(invoice);
             }
         }
 
-        return manifest;
+        // 4. Salva o Manifesto INTEIRO de uma vez.
+        // Como o CascadeType.ALL está nas entidades, ele vai salvar Manifesto -> Nota -> Item na ordem certa!
+        System.out.println("=== SALVANDO TUDO NO BANCO ===");
+        return manifestRepository.saveAndFlush(manifest);
     }
-
 
     public Optional<ManifestEntity> findByManifestCode(String manifestCode) {
         return manifestRepository.findByManifestCode(manifestCode);
     }
 
+    @Transactional
     public ManifestEntity saveOrUpdateManifest(ManifestEntity payload) {
-        // 1. Busca o manifesto existente no banco pelo código (ex: ROM-9867)
         ManifestEntity existingManifest = manifestRepository.findByManifestCode(payload.getManifestCode())
                 .orElseThrow(() -> new RuntimeException("Romaneio não encontrado: " + payload.getManifestCode()));
 
-        // 2. Atualiza o status se necessário
-        existingManifest.setStatus(payload.getStatus());
+        if ("CONCLUIDO".equals(existingManifest.getStatus())) {
+            throw new IllegalStateException("Romaneio já concluído, não pode ser alterado.");
+        }
 
-        // 3. Percorre as faturas e os itens para atualizar a quantidade conferida (checkedQty)
+        if (payload.getStatus() != null) {
+            existingManifest.setStatus(payload.getStatus());
+        }
+
         if (payload.getInvoices() != null) {
             payload.getInvoices().forEach(incomingInv -> {
+                if (incomingInv.getItems() == null) return;
                 existingManifest.getInvoices().stream()
                         .filter(inv -> inv.getNfNumber().equals(incomingInv.getNfNumber()))
                         .findFirst()
                         .ifPresent(targetInv -> {
                             incomingInv.getItems().forEach(incomingItem -> {
                                 targetInv.getItems().stream()
-                                        .filter(item -> item.getId().equals(incomingItem.getId()) ||
-                                                item.getMaterialCode().equals(incomingItem.getMaterialCode()))
+                                        .filter(item -> item.getId() != null
+                                                && item.getId().equals(incomingItem.getId()))
                                         .findFirst()
                                         .ifPresent(targetItem -> {
-                                            // Atualiza a quantidade conferida com o valor bipado na coletora
-                                            targetItem.setCheckedQty(incomingItem.getCheckedQty());
+                                            if (incomingItem.getCheckedQty() != null) {
+                                                int total = targetItem.getNoteQty() != null ? targetItem.getNoteQty() : 0;
+                                                int qty = incomingItem.getCheckedQty();
+                                                targetItem.setCheckedQty(Math.min(qty, total));
+                                            }
                                         });
                             });
                         });
             });
         }
 
-        // 4. Salva as alterações no banco de dados
         return manifestRepository.save(existingManifest);
     }
 
+    @Transactional
+    public ManifestEntity closeManifest(String manifestCode) {
+        ManifestEntity manifest = manifestRepository.findByManifestCode(manifestCode)
+                .orElseThrow(() -> new RuntimeException("Romaneio não encontrado: " + manifestCode));
+
+        if ("CONCLUIDO".equals(manifest.getStatus())) {
+            return manifest;
+        }
+
+        List<String> pendencias = new ArrayList<>();
+        for (InvoiceEntity inv : manifest.getInvoices()) {
+            for (ReturnItemEntity item : inv.getItems()) {
+                int checked = item.getCheckedQty() != null ? item.getCheckedQty() : 0;
+                int note    = item.getNoteQty()    != null ? item.getNoteQty()    : 0;
+                if (checked < note) {
+                    pendencias.add(String.format("NF %s / Material %s: %d/%d",
+                            inv.getNfNumber(), item.getMaterialCode(), checked, note));
+                }
+            }
+        }
+
+        if (!pendencias.isEmpty()) {
+            throw new IllegalStateException("Existem itens não conferidos:\n" + String.join("\n", pendencias));
+        }
+
+        manifest.setStatus("CONCLUIDO");
+        return manifestRepository.save(manifest);
+    }
+
+    @Transactional
+    public ManifestEntity reopenManifest(String manifestCode) {
+        ManifestEntity manifest = manifestRepository.findByManifestCode(manifestCode)
+                .orElseThrow(() -> new RuntimeException("Romaneio não encontrado: " + manifestCode));
+        manifest.setStatus("ABERTO");
+        return manifestRepository.save(manifest);
+    }
 }

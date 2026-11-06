@@ -1,63 +1,58 @@
 package com.gam.wms.model;
 
-
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 
-import java.time.LocalDate;
-
 @Entity
-@Table(name = "tb_return_item")
+@Table(name = "return_item")
 public class ReturnItemEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "material_code")
+    @ManyToOne
+    @JoinColumn(name = "invoice_id") // ou o nome da coluna correspondente na tua tabela tb_return_item
+    private InvoiceEntity invoice;
+
+    @Column(name = "material_code", nullable = false)
     private String materialCode;
 
-    private String description;
-
-    @Column(name = "note_qty")
+    @Column(name = "note_qty", nullable = false)
     private Integer noteQty;
 
-    @Column(name = "checked_qty")
-    private Integer checkedQty;
+    @Column(name = "checked_qty", nullable = false)
+    private Integer checkedQty = 0;
 
-    @Column(name = "damaged_qty")
-    private Integer damagedQty;
+    @Column(name = "damaged_qty", nullable = false)
+    private Integer damagedQty = 0;
 
+    @Column(name = "batch")
     private String batch;
-
-    @Column(name = "expiry_date")
-    private LocalDate expiryDate;
-
-    private String disposition;
 
     @Column(name = "specific_reason")
     private String specificReason;
 
-    // EVITA A RECURSÃO INFINITA
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "invoice_id", nullable = false)
-    @JsonIgnore
-    private InvoiceEntity invoice;
+    public String getSpecificReason() { return specificReason; }
+    public void setSpecificReason(String specificReason) { this.specificReason = specificReason; }
 
-    // Construtores, Getters e Setters
-    public ReturnItemEntity() {}
-
+    // Getters e Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
     public InvoiceEntity getInvoice() { return invoice; }
     public void setInvoice(InvoiceEntity invoice) { this.invoice = invoice; }
 
+    // Compatibilidade com o teu Service (linha 53): aceita o ID ou a Invoice
+    public void setInvoiceId(Long invoiceId) {
+        if (invoiceId != null) {
+            InvoiceEntity inv = new InvoiceEntity();
+            inv.setId(invoiceId);
+            this.invoice = inv;
+        }
+    }
+
     public String getMaterialCode() { return materialCode; }
     public void setMaterialCode(String materialCode) { this.materialCode = materialCode; }
-
-    public String getDescription() { return description; }
-    public void setDescription(String description) { this.description = description; }
 
     public Integer getNoteQty() { return noteQty; }
     public void setNoteQty(Integer noteQty) { this.noteQty = noteQty; }
@@ -68,27 +63,6 @@ public class ReturnItemEntity {
     public Integer getDamagedQty() { return damagedQty; }
     public void setDamagedQty(Integer damagedQty) { this.damagedQty = damagedQty; }
 
-    public String getSpecificReason() { return specificReason; }
-    public void setSpecificReason(String specificReason) { this.specificReason = specificReason; }
-
     public String getBatch() { return batch; }
     public void setBatch(String batch) { this.batch = batch; }
-
-    public LocalDate getExpiryDate() {
-        return expiryDate;
-    }
-
-    public void setExpiryDate(LocalDate expiryDate) {
-        this.expiryDate = expiryDate;
-    }
-
-    public String getDisposition() {
-        return disposition;
-    }
-
-    public void setDisposition(String disposition) {
-        this.disposition = disposition;
-    }
-
-
 }

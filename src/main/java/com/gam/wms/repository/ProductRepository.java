@@ -7,4 +7,6 @@ import java.util.Optional;
 
 public interface ProductRepository extends JpaRepository<ProductEntity, Long> {
     Optional<ProductEntity> findByMaterialCode(String materialCode);
+
+    boolean existsByMaterialCode(String materialCode);
 }

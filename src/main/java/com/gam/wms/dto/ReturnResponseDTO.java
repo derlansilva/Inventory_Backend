@@ -1,4 +1,0 @@
-package com.gam.wms.dto;
-
-public class ReturnResponseDTO {
-}

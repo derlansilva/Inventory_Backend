@@ -2,6 +2,7 @@ package com.gam.wms.model;
 
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 
 import java.util.ArrayList;
@@ -27,14 +28,15 @@ public class InvoiceEntity {
     @Column(name = "distribution_channel")
     private String distributionChannel;
 
-    @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, fetch = FetchType.EAGER, orphanRemoval = true)
+    @ManyToOne
+    @JoinColumn(name = "manifest_id")
+    private ManifestEntity manifest;
+
+    @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonIgnoreProperties({"invoice", "hibernateLazyInitializer", "handler"})
     private List<ReturnItemEntity> items = new ArrayList<>();
 
-    // EVITA A RECURSÃO INFINITA
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "manifest_id", nullable = false)
-    @JsonIgnore
-    private ManifestEntity manifest;
+
 
     // Construtores, Getters e Setters
     public InvoiceEntity() {}
