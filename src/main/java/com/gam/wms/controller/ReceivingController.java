@@ -13,7 +13,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/v1/receiving")
-@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174","https://gammobile.netlify.app" })
+@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174","https://gammobile.netlify.app" , "https://wmsgam.netlify.app/" })
 public class ReceivingController {
 
     private final ReceivingRepository receivingRepository;
