@@ -17,6 +17,10 @@ public class ReceivingItemEntity {
     @Column(name = "material_code", nullable = false)
     private String materialCode;
 
+    @Column(name = "ean" , nullable = false)
+    private String ean;
+
+
     @Column(name = "description")
     private String description;
 
@@ -47,4 +51,12 @@ public class ReceivingItemEntity {
     public void setNoteQuantity(Integer noteQuantity) { this.noteQuantity = noteQuantity; }
     public String getBatch() { return batch; }
     public void setBatch(String batch) { this.batch = batch; }
+
+    public String getEan() {
+        return ean;
+    }
+
+    public void setEan(String ean) {
+        this.ean = ean;
+    }
 }

@@ -1,10 +1,15 @@
 package com.gam.wms.controller;
 
+import com.gam.wms.dto.CreateReceivingDto;
+import com.gam.wms.dto.ItemDto;
+import com.gam.wms.dto.ScanItemDto;
+import com.gam.wms.dto.VolumeDto;
 import com.gam.wms.model.ReceivingEntity;
 import com.gam.wms.model.ReceivingInvoiceEntity;
 import com.gam.wms.model.ReceivingItemEntity;
 import com.gam.wms.repository.ReceivingRepository;
 import com.gam.wms.repository.ReceivingInvoiceRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,7 +18,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/v1/receiving")
-@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174","https://gammobile.netlify.app" , "https://wmsgam.netlify.app/" })
+@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174","https://gammobile.netlify.app" , "https://wmsgam.netlify.app" })
 public class ReceivingController {
 
     private final ReceivingRepository receivingRepository;
@@ -24,12 +29,6 @@ public class ReceivingController {
         this.invoiceRepository = invoiceRepository;
     }
 
-    // ==========================================
-    // 1. ROTA: CRIAR RECEBIMENTO (Coletor)
-    // ==========================================
-    public record VolumeDto(String nfNumber, Integer quantidade) {}
-    public record CreateReceivingDto(String receivingCode, List<VolumeDto> volumes) {}
-
     @PostMapping("/create")
     @Transactional
     public ResponseEntity<?> createReceiving(@RequestBody CreateReceivingDto request) {
@@ -38,6 +37,18 @@ public class ReceivingController {
         receiving.setStatus("OPEN");
 
         for (VolumeDto vol : request.volumes()) {
+
+            List<ReceivingInvoiceEntity> invoicesExists = invoiceRepository.findAllByInvoiceNumber(vol.nfNumber());
+
+            boolean  isImport = invoicesExists.stream().anyMatch( nf -> "IMP0RTED".equals(nf.getXmlStatus()));
+
+            if (isImport) {
+                // Retorna um erro 400 avisando o Frontend
+                return ResponseEntity.badRequest().body(
+                        "A Nota Fiscal " + vol.nfNumber() + " já foi recebida e conferida anteriormente."
+                );
+            }
+
             ReceivingInvoiceEntity invoice = new ReceivingInvoiceEntity();
             invoice.setReceiving(receiving);
             invoice.setInvoiceNumber(vol.nfNumber());
@@ -50,9 +61,7 @@ public class ReceivingController {
         return ResponseEntity.ok(Map.of("message", "Recebimento " + receiving.getReceivingCode() + " criado!"));
     }
 
-    // ==========================================
-    // 2. ROTA: LISTAR MANIFESTOS (Tela do PC)
-    // ==========================================
+
     @GetMapping("/manifests")
     public ResponseEntity<List<Map<String, Object>>> getManifests() {
         List<ReceivingEntity> list = receivingRepository.findAll();
@@ -73,15 +82,10 @@ public class ReceivingController {
         return ResponseEntity.ok(response);
     }
 
-    // ==========================================
-    // 3. ROTA: UPLOAD DO XML (Tela do PC)
-    // ==========================================
     public record UploadXmlDto(String invoiceNumber, String customerName, List<ItemDto> items) {}
-    public record ItemDto(String code, String desc, Integer noteQty, String batch) {}
 
     @PostMapping("/upload-xml/{receivingCode}/{invoiceNumber}")
     @Transactional
-
      ResponseEntity<?> uploadXml(
             @PathVariable String receivingCode,
             @PathVariable String invoiceNumber,
@@ -93,7 +97,7 @@ public class ReceivingController {
         ReceivingInvoiceEntity invoice = invoiceRepository.findByReceivingIdAndInvoiceNumber(receiving.getId(), invoiceNumber)
                 .orElseThrow(() -> new RuntimeException("NF não encontrada neste recebimento"));
 
-        // Dupla checagem de segurança
+
         if (!invoice.getInvoiceNumber().replaceAll("^0+", "").equals(invoiceNumber.replaceAll("^0+", ""))) {
             return ResponseEntity.badRequest().body("A NF do XML não bate com a NF selecionada.");
         }
@@ -102,6 +106,7 @@ public class ReceivingController {
         for (ItemDto itemDto : xmlData.items()) {
             ReceivingItemEntity item = new ReceivingItemEntity();
             item.setReceivingInvoice(invoice);
+            item.setEan(itemDto.ean());
             item.setMaterialCode(itemDto.code());
             item.setDescription(itemDto.desc());
             item.setNoteQuantity(itemDto.noteQty());
@@ -125,7 +130,7 @@ public class ReceivingController {
 
 
     @GetMapping("/scan-invoice/{invoiceNumber}")
-    @Transactional(readOnly = true) // Importante para o Hibernate conseguir ler a lista de itens
+    @Transactional(readOnly = true)
     public ResponseEntity<?> getInvoiceForScanning(@PathVariable String invoiceNumber) {
         // Busca todas as notas com esse número
         List<ReceivingInvoiceEntity> invoices = invoiceRepository.findAllByInvoiceNumber(invoiceNumber);
@@ -134,17 +139,16 @@ public class ReceivingController {
             return ResponseEntity.badRequest().body("A NF " + invoiceNumber + " não foi encontrada no banco.");
         }
 
-        // Pega a primeira nota importada
         ReceivingInvoiceEntity invoice = invoices.stream()
                 .filter(i -> "IMPORTED".equals(i.getXmlStatus()))
                 .findFirst()
                 .orElse(invoices.get(0));
 
-        // Mapeia os itens para um DTO limpo usando HashMap (evita erro de tipagem do Map.of)
         List<Map<String, Object>> itemsDto = invoice.getItems().stream().map(item -> {
             Map<String, Object> map = new java.util.HashMap<>();
             map.put("id", item.getId());
             map.put("materialCode", item.getMaterialCode());
+            map.put("ean", item.getEan());
             map.put("description", item.getDescription());
             map.put("noteQuantity", item.getNoteQuantity());
             map.put("scannedQuantity", item.getScannedQuantity() != null ? item.getScannedQuantity() : 0);
@@ -152,7 +156,6 @@ public class ReceivingController {
             return map;
         }).collect(java.util.stream.Collectors.toList());;
 
-        // Retorna o JSON plano (sem objetos aninhados complexos)
         return ResponseEntity.ok(Map.of(
                 "invoiceNumber", invoice.getInvoiceNumber(),
                 "receivingCode", invoice.getReceiving().getReceivingCode(),
@@ -160,43 +163,59 @@ public class ReceivingController {
         ));
     }
 
-    // 2. Rota de Bipagem (EAN)
-    public record ScanItemDto(String eanCode) {}
+
 
     @PostMapping("/scan-item/{invoiceNumber}")
     @Transactional
     public ResponseEntity<?> scanItem(@PathVariable String invoiceNumber, @RequestBody ScanItemDto request) {
-        ReceivingInvoiceEntity invoice = invoiceRepository.findByInvoiceNumber(invoiceNumber)
-                .orElseThrow(() -> new RuntimeException("NF não encontrada."));
+        List<ReceivingInvoiceEntity> invoices = invoiceRepository.findAllByInvoiceNumber(invoiceNumber);
+
+        ReceivingInvoiceEntity invoice = invoices.stream()
+                .filter(i -> "IMPORTED".equals(i.getXmlStatus()))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("NF não encontrada ou não importada."));
 
         String ean = request.eanCode();
 
-        // Procura o item na NF que tenha esse EAN (no seu caso, o material_code)
+        // Procura o item pelo EAN ou pelo MaterialCode
         ReceivingItemEntity targetItem = invoice.getItems().stream()
-                .filter(item -> item.getMaterialCode().equals(ean))
+                .filter(item -> (item.getEan() != null && item.getEan().equals(ean)) || item.getMaterialCode().equals(ean))
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("Produto " + ean + " não pertence a esta NF!"));
 
-        // Verifica se já bipou tudo
-        if (targetItem.getScannedQuantity() >= targetItem.getNoteQuantity()) {
+        int currentScanned = targetItem.getScannedQuantity() != null ? targetItem.getScannedQuantity() : 0;
+
+        if (currentScanned >= targetItem.getNoteQuantity()) {
             return ResponseEntity.badRequest().body("Quantidade excedida! A nota só tem " + targetItem.getNoteQuantity() + " unidades.");
         }
 
-        // Soma +1 na quantidade conferida
-        targetItem.setScannedQuantity(targetItem.getScannedQuantity() + 1);
-
-        // (Opcional) Verifica se o lote bate, etc.
-
-        // Salva no banco (se tiver cascade, o save do invoice salva o item)
+        targetItem.setScannedQuantity(currentScanned + 1);
         receivingRepository.save(invoice.getReceiving());
 
         return ResponseEntity.ok(Map.of(
-                "message", "Item " + ean + " bipado!",
+                "message", "Item bipado!",
                 "materialCode", targetItem.getMaterialCode(),
                 "description", targetItem.getDescription(),
                 "scanned", targetItem.getScannedQuantity(),
                 "expected", targetItem.getNoteQuantity()
         ));
     }
+    @GetMapping("/check-invoice/{invoiceNumber}")
+    public ResponseEntity<?> checkInvoiceStatus(@PathVariable String invoiceNumber) {
+        System.out.println("esta batendo aqui sim ");
 
+        List<ReceivingInvoiceEntity> invoices = invoiceRepository.findAllByInvoiceNumber(invoiceNumber);
+
+        if(!invoices.isEmpty()) {
+            // Se achar a nota, vemos se ela já foi finalizada/importada
+            boolean isProcess = invoices.stream()
+                    .anyMatch(i -> "IMPORTED".equals(i.getXmlStatus()));
+
+            if (isProcess) {
+                return ResponseEntity.badRequest().body("A NF " + invoiceNumber + " já foi conferida e importada anteriormente.");
+            }
+        }
+
+        return ResponseEntity.ok().build();
+    }
 }
