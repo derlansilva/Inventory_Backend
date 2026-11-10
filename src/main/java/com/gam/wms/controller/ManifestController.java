@@ -3,6 +3,7 @@ package com.gam.wms.controller;
 import com.gam.wms.dto.ReturnManifestRequestDTO;
 import com.gam.wms.model.ManifestEntity;
 import com.gam.wms.model.ReturnItemEntity;
+import com.gam.wms.model.StatusEnum;
 import com.gam.wms.repository.ReturnItemRepository;
 import com.gam.wms.service.ReturnManifestService;
 import org.springframework.http.ResponseEntity;
@@ -73,7 +74,7 @@ public class ManifestController {
         ReturnItemEntity item = itemOpt.get();
 
         // Bloqueia se romaneio já foi finalizado
-        String status = item.getInvoice().getManifest().getStatus();
+        StatusEnum status = item.getInvoice().getManifest().getStatus();
         if ("CONCLUIDO".equals(status)) {
             return ResponseEntity.status(409).body("Romaneio já finalizado.");
         }

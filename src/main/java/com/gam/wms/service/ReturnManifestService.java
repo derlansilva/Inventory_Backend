@@ -38,7 +38,7 @@ public class ReturnManifestService {
         // 1. Cria o Manifesto (sem salvar ainda)
         ManifestEntity manifest = new ManifestEntity();
         manifest.setManifestCode(request.getManifestCode());
-        manifest.setStatus("ABERTO");
+        manifest.setStatus(StatusEnum.OPEN);
         manifest.setInvoices(new ArrayList<>()); // Garante que a lista não é nula
 
         if (request.getInvoices() != null) {
@@ -166,7 +166,7 @@ public class ReturnManifestService {
             throw new IllegalStateException("Existem itens não conferidos:\n" + String.join("\n", pendencias));
         }
 
-        manifest.setStatus("CONCLUIDO");
+        manifest.setStatus(StatusEnum.COMPLETED);
         return manifestRepository.save(manifest);
     }
 
@@ -174,7 +174,7 @@ public class ReturnManifestService {
     public ManifestEntity reopenManifest(String manifestCode) {
         ManifestEntity manifest = manifestRepository.findByManifestCode(manifestCode)
                 .orElseThrow(() -> new RuntimeException("Romaneio não encontrado: " + manifestCode));
-        manifest.setStatus("ABERTO");
+        manifest.setStatus(StatusEnum.OPEN);
         return manifestRepository.save(manifest);
     }
 }

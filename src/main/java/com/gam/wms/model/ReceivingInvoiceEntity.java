@@ -19,8 +19,9 @@ public class ReceivingInvoiceEntity {
     @Column(name = "invoice_number", nullable = false)
     private String invoiceNumber;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "xml_status", nullable = false)
-    private String xmlStatus; // WAITING_XML, IMPORTED
+    private StatusEnum xmlStatus; // WAITING_XML, IMPORTED
 
     @Column(name = "volume_quantity", nullable = false)
     private Integer volumeQuantity = 0; // Quantidade de caixas bipadas
@@ -35,8 +36,8 @@ public class ReceivingInvoiceEntity {
     public void setReceiving(ReceivingEntity receiving) { this.receiving = receiving; }
     public String getInvoiceNumber() { return invoiceNumber; }
     public void setInvoiceNumber(String invoiceNumber) { this.invoiceNumber = invoiceNumber; }
-    public String getXmlStatus() { return xmlStatus; }
-    public void setXmlStatus(String xmlStatus) { this.xmlStatus = xmlStatus; }
+    public StatusEnum getXmlStatus() { return xmlStatus; }
+    public void setXmlStatus(StatusEnum xmlStatus) { this.xmlStatus = xmlStatus; }
     public Integer getVolumeQuantity() { return volumeQuantity; }
     public void setVolumeQuantity(Integer volumeQuantity) { this.volumeQuantity = volumeQuantity; }
     public List<ReceivingItemEntity> getItems() { return items; }

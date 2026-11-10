@@ -13,11 +13,16 @@ public class ReceivingEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // Vínculo com o Manifesto da Transportadora (MDF-e / Caminhão)
+    @ManyToOne
+    @JoinColumn(name = "manifest_id")
+    private ManifestEntity manifest;
+
     @Column(name = "receiving_code", unique = true, nullable = false)
     private String receivingCode; // Ex: REC-984512
 
     @Column(name = "status", nullable = false)
-    private String status; // OPEN, CLOSED
+    private StatusEnum status; // OPEN, CLOSED
 
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
@@ -28,10 +33,19 @@ public class ReceivingEntity {
     // Getters e Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public ManifestEntity getManifest() {
+        return manifest;
+    }
+
+    public void setManifest(ManifestEntity manifest) {
+        this.manifest = manifest;
+    }
+
     public String getReceivingCode() { return receivingCode; }
     public void setReceivingCode(String receivingCode) { this.receivingCode = receivingCode; }
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
+    public StatusEnum getStatus() { return status; }
+    public void setStatus(StatusEnum status) { this.status = status; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public List<ReceivingInvoiceEntity> getInvoices() { return invoices; }

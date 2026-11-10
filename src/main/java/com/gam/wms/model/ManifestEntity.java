@@ -19,8 +19,11 @@ public class ManifestEntity {
     @Column(name="manifest_code", nullable = false, unique = true)
     private String manifestCode;
 
+    @Column(name = "carrier_name")
+    private String carrierName;
+
     @Column(nullable = false)
-    private String status;
+    private StatusEnum status;
 
     @Column(name="created_at")
     private LocalDateTime createdAt ;
@@ -60,11 +63,11 @@ public class ManifestEntity {
         this.manifestCode = manfestCode;
     }
 
-    public String getStatus() {
+    public StatusEnum getStatus() {
         return status;
     }
 
-    public void setStatus(String status) {
+    public void setStatus(StatusEnum status) {
         this.status = status;
     }
 
