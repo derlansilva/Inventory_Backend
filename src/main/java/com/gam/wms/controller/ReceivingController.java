@@ -5,6 +5,7 @@ import com.gam.wms.model.*;
 import com.gam.wms.repository.ManifestRepository;
 import com.gam.wms.repository.ReceivingRepository;
 import com.gam.wms.repository.ReceivingInvoiceRepository;
+import com.gam.wms.service.InvoiceLogService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,13 +22,15 @@ public class ReceivingController {
     private final ReceivingRepository receivingRepository;
     private final ReceivingInvoiceRepository invoiceRepository;
     private final ManifestRepository manifestRepository;
+    private final InvoiceLogService  invoiceLogService;
 
     public ReceivingController(ReceivingRepository receivingRepository,
                                ReceivingInvoiceRepository invoiceRepository,
-                               ManifestRepository manifestRepository) {
+                               ManifestRepository manifestRepository, InvoiceLogService invoiceLogService) {
         this.receivingRepository = receivingRepository;
         this.invoiceRepository = invoiceRepository;
         this.manifestRepository = manifestRepository;
+        this.invoiceLogService = invoiceLogService;
     }
 
     // ==========================================
@@ -87,7 +90,11 @@ public class ReceivingController {
             // AQUI: A nota recebe o romaneio
             invoice.setReceiving(receiving);
             receiving.getInvoices().add(invoice);
+
+
+            invoiceLogService.logEvent(invoice , "CRIADA" , "NF acionadoa ao recebimento cego via coletor" , "OPERADOR_COLETOR");
         }
+
 
         // Salva o romaneio (e as notas em cascata)
         receivingRepository.saveAndFlush(receiving);
@@ -118,6 +125,7 @@ public class ReceivingController {
             Optional<ReceivingEntity> receivingOpt = receivingRepository.findByReceivingCode(expectedReceivingCode);
 
             if (receivingOpt.isPresent()) {
+
                 allInvoices.addAll(receivingOpt.get().getInvoices());
             }
 
@@ -129,9 +137,25 @@ public class ReceivingController {
                         Map<String, Object> invMap = new HashMap<>();
                         invMap.put("invoiceNumber", inv.getInvoiceNumber());
                         invMap.put("status", inv.getXmlStatus());
+
+
+                        List<Map<String, Object>> eventMap = inv.getEvents().stream()
+                                .map(e -> {
+                                    Map<String, Object> evMap = new HashMap<>();
+                                    evMap.put("date", e.getEventDate().toString());
+                                    evMap.put("status", e.getStatus());
+                                    evMap.put("message", e.getMessage());
+                                    evMap.put("user", e.getUserName());
+                                    return evMap;
+                                })
+                                .collect(Collectors.toList());
+                        invMap.put("historyEvents", eventMap);
+
+
                         return invMap;
                     })
                     .collect(Collectors.toList());
+
 
             map.put("invoices", invoicesMap);
             response.add(map);
@@ -199,6 +223,8 @@ public class ReceivingController {
 
             invoice.setXmlStatus(StatusEnum.IMPORTED);
             invoiceRepository.saveAndFlush(invoice);
+
+            invoiceLogService.logEvent(invoice , "XML_IMPORTADO" , "XML processado com " + invoice.getItems().size() + " Itens " , "SISTEMA");
             receivingRepository.save(receiving);
 
             return ResponseEntity.ok(Map.of("message", "XML for Invoice " + invoiceNumber + " imported into Manifest " + manifestCode));
@@ -262,10 +288,21 @@ public class ReceivingController {
             return map;
         }).collect(Collectors.toList());
 
+        // NOVO: Mapear o histórico da NF para enviar ao Frontend
+        List<Map<String, Object>> historyDto = invoice.getEvents().stream().map(event -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("date", event.getEventDate().toString());
+            map.put("status", event.getStatus());
+            map.put("message", event.getMessage());
+            map.put("user", event.getUserName());
+            return map;
+        }).collect(Collectors.toList());
+
         return ResponseEntity.ok(Map.of(
                 "invoiceNumber", invoice.getInvoiceNumber(),
                 "receivingCode", invoice.getReceiving() != null ? invoice.getReceiving().getReceivingCode() : "NO RECEIVING",
-                "items", itemsDto
+                "items", itemsDto,
+                "history", historyDto // <-- ENVIANDO O HISTÓRICO AQUI
         ));
     }
 
@@ -309,5 +346,43 @@ public class ReceivingController {
                 "scanned", targetItem.getScannedQuantity(),
                 "expected", targetItem.getNoteQuantity()
         ));
+    }
+
+
+    @PostMapping("/save-occurrence")
+    @Transactional
+    public ResponseEntity<?> saveOccurrence(@RequestBody SaveOccurrenceDto request) {
+        try {
+            // 1. Busca a NF
+            List<ReceivingInvoiceEntity> invoices = invoiceRepository.findAllByInvoiceNumber(request.invoiceNumber());
+            if (invoices.isEmpty()) {
+                return ResponseEntity.badRequest().body("NF não encontrada.");
+            }
+            ReceivingInvoiceEntity invoice = invoices.get(0);
+
+            // 2. Muda o status para FINALIZADO
+            invoice.setXmlStatus(StatusEnum.CLOSED);
+            invoiceRepository.save(invoice);
+
+            // 3. Salva o Log na NF
+            invoiceLogService.logEvent(invoice, "FINALIZADA", "Ocorrência finalizada via painel. Motivo: " + request.reason(), "USERNAME_HERE");
+
+            // 4. Processa os itens e atualiza o estoque
+            for (ItemOccurrenceDto itemDto : request.items()) {
+                ReceivingItemEntity invoiceItem = invoice.getItems().stream()
+                        .filter(i -> i.getMaterialCode().equals(itemDto.materialCode()))
+                        .findFirst().orElse(null);
+
+                if (invoiceItem != null) {
+                    // Aqui você chama o seu serviço de estoque
+                    // stockMovementService.registerMovement(invoice, itemDto.materialCode(), invoiceItem.getDescription(), invoiceItem.getNoteQuantity(), itemDto.specificReason(), request.manifestCode(), "KETELIN", "FINALIZADO");
+                }
+            }
+
+            return ResponseEntity.ok(Map.of("message", "Ocorrência finalizada e histórico gerado!"));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Erro ao salvar: " + e.getMessage());
+        }
     }
 }

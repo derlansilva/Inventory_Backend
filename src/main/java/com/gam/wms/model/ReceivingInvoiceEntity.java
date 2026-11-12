@@ -29,6 +29,20 @@ public class ReceivingInvoiceEntity {
     @OneToMany(mappedBy = "receivingInvoice", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ReceivingItemEntity> items = new ArrayList<>();
 
+    @OneToMany(mappedBy = "receivingInvoice", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<InvoiceHistoryEntity> events = new ArrayList<>();
+
+    public List<InvoiceHistoryEntity> getEvents() { return events; }
+    public void setEvents(List<InvoiceHistoryEntity> events) { this.events = events; }
+
+    public void addEvent(InvoiceHistoryEntity event) {
+        this.events.add(event);
+        event.setReceivingInvoice(this);
+    }
+
+
+
+
     // Getters e Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -42,4 +56,6 @@ public class ReceivingInvoiceEntity {
     public void setVolumeQuantity(Integer volumeQuantity) { this.volumeQuantity = volumeQuantity; }
     public List<ReceivingItemEntity> getItems() { return items; }
     public void setItems(List<ReceivingItemEntity> items) { this.items = items; }
+
+
 }
