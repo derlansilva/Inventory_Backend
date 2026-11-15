@@ -40,67 +40,162 @@ public class ReceivingController {
     @PostMapping("/create")
     @Transactional
     public ResponseEntity<?> createReceiving(@RequestBody CreateReceivingDto request) {
-        System.out.println(">>> INICIANDO CREATE RECEIVING <<<");
-        String finalManifestCode = request.manifestCode();
-        System.out.println("Manifest Code recebido: " + finalManifestCode);
+        try {
+            System.out.println(">>> INICIANDO CREATE RECEIVING <<<");
+            String finalManifestCode = request.manifestCode();
 
-        // 1. Cria o Manifesto e OBRIGA o banco a salvar ele na hora
-        ManifestEntity manifest = manifestRepository.findByManifestCode(finalManifestCode)
-                .orElseGet(() -> {
-                    System.out.println("Criando NOVO manifesto...");
-                    ManifestEntity newManifest = new ManifestEntity();
-                    newManifest.setManifestCode(finalManifestCode);
-                    newManifest.setStatus(StatusEnum.OPEN);
-                    newManifest.setCreatedAt(LocalDateTime.now());
-                    return newManifest;
-                });
+            // 1. Cria ou busca o Manifesto
+            ManifestEntity manifest = manifestRepository.findByManifestCode(finalManifestCode)
+                    .orElseGet(() -> {
+                        ManifestEntity newManifest = new ManifestEntity();
+                        newManifest.setManifestCode(finalManifestCode);
+                        newManifest.setStatus(StatusEnum.OPEN);
+                        newManifest.setCreatedAt(LocalDateTime.now());
+                        return newManifest;
+                    });
+            manifest = manifestRepository.saveAndFlush(manifest);
 
-        // Salva o manifesto e pega o ID gerado
-        manifest = manifestRepository.saveAndFlush(manifest);
+            // 2. Cria ou busca o Romaneio
+            String receivingCode = finalManifestCode;
+            ReceivingEntity receiving = receivingRepository.findByReceivingCode(receivingCode)
+                    .orElseGet(() -> {
+                        ReceivingEntity newReceiving = new ReceivingEntity();
+                        newReceiving.setReceivingCode(receivingCode);
+                        newReceiving.setStatus(StatusEnum.OPEN);
+                        newReceiving.setCreatedAt(LocalDateTime.now());
+                        return newReceiving;
+                    });
 
-        System.out.println("Manifesto salvo com ID: " + manifest.getId());
+            // Limpa a lista para evitar duplicatas se o romaneio já existir
+            receiving.getInvoices().clear();
 
-        // 2. Cria o Romaneio
-        String receivingCode = finalManifestCode;
-        ReceivingEntity receiving = receivingRepository.findByReceivingCode(receivingCode)
-                .orElseGet(() -> {
-                    System.out.println("Criando NOVO romaneio...");
-                    ReceivingEntity newReceiving = new ReceivingEntity();
-                    newReceiving.setReceivingCode(receivingCode);
-                    newReceiving.setStatus(StatusEnum.OPEN);
-                    newReceiving.setCreatedAt(LocalDateTime.now());
-                    return newReceiving;
-                });
+            // 3. Processa cada NF
+            for (VolumeDto vol : request.volumes()) {
+                System.out.println("Processando NF: " + vol.nfNumber());
+                List<ReceivingInvoiceEntity> existingInvoices = invoiceRepository.findAllByInvoiceNumber(vol.nfNumber());
 
-        // 3. Adiciona as NFs
-        for (VolumeDto vol : request.volumes()) {
-            System.out.println("Processando NF: " + vol.nfNumber());
-            List<ReceivingInvoiceEntity> existingInvoices = invoiceRepository.findAllByInvoiceNumber(vol.nfNumber());
+                ReceivingInvoiceEntity invoice;
+                if (!existingInvoices.isEmpty()) {
+                    invoice = existingInvoices.get(0);
+                } else {
+                    invoice = new ReceivingInvoiceEntity();
+                    invoice.setInvoiceNumber(vol.nfNumber());
+                    invoice.setVolumeQuantity(vol.quantidade());
+                    invoice.setXmlStatus(StatusEnum.WAITING_XML);
+                }
 
-            ReceivingInvoiceEntity invoice;
-            if (!existingInvoices.isEmpty()) {
-                invoice = existingInvoices.get(0);
-            } else {
-                invoice = new ReceivingInvoiceEntity();
-                invoice.setInvoiceNumber(vol.nfNumber());
-                invoice.setVolumeQuantity(vol.quantidade());
-                invoice.setXmlStatus(StatusEnum.WAITING_XML);
+                // Amarra a nota ao romaneio
+                invoice.setReceiving(receiving);
+                receiving.getInvoices().add(invoice);
             }
 
-            // AQUI: A nota recebe o romaneio
-            invoice.setReceiving(receiving);
-            receiving.getInvoices().add(invoice);
+            // 4. SALVA O ROMANEIO COM TODAS AS NOTAS DE UMA VEZ (Cascade)
+            receiving = receivingRepository.saveAndFlush(receiving);
 
+            // 5. Agora que as notas têm ID, salvamos o log de cada uma
+            for (ReceivingInvoiceEntity savedInvoice : receiving.getInvoices()) {
+                invoiceLogService.logEvent(savedInvoice, "CRIADA", "NF adicionada ao recebimento cego via coletor", "OPERADOR_COLETOR");
+            }
 
-            invoiceLogService.logEvent(invoice , "CRIADA" , "NF acionadoa ao recebimento cego via coletor" , "OPERADOR_COLETOR");
+            return ResponseEntity.ok(Map.of("message", "Manifest " + manifest.getManifestCode() + " created successfully!"));
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Erro interno: " + e.getMessage());
+        }
+    }
+    @GetMapping("/manifests/filter")
+    public ResponseEntity<List<Map<String, Object>>> getManifests( @RequestParam(required = false) String search,
+                                                                   @RequestParam(required = false) String status,
+                                                                   @RequestParam(required = false) String date) {
+
+        List<ManifestEntity> manifests = manifestRepository.findAll();
+        List<Map<String, Object>> response  = new ArrayList<>();
+
+        for (ManifestEntity manifest : manifests) {
+            String expectedManifestCode = manifest.getManifestCode();
+            Optional<ReceivingEntity> receivingOpt = receivingRepository.findByReceivingCode(expectedManifestCode);
+
+            if(receivingOpt.isPresent()) {
+                ReceivingEntity receiving = receivingOpt.get();
+                List<ReceivingInvoiceEntity> allInvoices = receiving.getInvoices();
+                if(search != null && !search.isEmpty()) {
+                    String query = search.trim().toLowerCase();
+                    boolean matchManifest = manifest.getManifestCode().toLowerCase().contains(query);
+
+                    boolean matchInvoice =allInvoices.stream()
+                            .anyMatch(inv -> inv.getInvoiceNumber().toLowerCase().contains(query));
+
+                    if(!matchManifest && !matchInvoice) {
+                        continue; //se não bater com o manifesto nem com nenhuma nf , pula
+                    }
+                }
+
+                if(status != null && !status.isEmpty() && !status.equals("ALL")) {
+                    if(!receiving.getStatus().name().equals(status)) continue;
+                }
+
+                if(date != null && !date.isEmpty()) {
+                    String receivingDate = receiving.getCreatedAt().toLocalDate().toString();
+                    if(!receivingDate.equals(date)) continue;
+                }
+
+                // --- MONTA O OBJETO DE RESPOSTA ---
+
+                // --- MONTA O OBJETO DE RESPOSTA ---
+                Map<String, Object> map = new HashMap<>();
+                map.put("id" , manifest.getId());
+                map.put("manifestCode" , manifest.getManifestCode());
+                map.put("date" , receiving.getCreatedAt() != null ? receiving.getCreatedAt().toLocalDate().toString() : LocalDateTime.now().toLocalDate().toString());
+                map.put("receivingStatus" , receiving.getStatus().name());
+
+                // Contadores de progresso
+                int totalItems = 0;
+                int scannedItems = 0;
+
+                List<Map<String, Object>> invoicesMap = new ArrayList<>();
+
+                for (ReceivingInvoiceEntity inv : allInvoices) {
+                    Map<String, Object> invMap = new HashMap<>();
+                    invMap.put("invoiceNumber", inv.getInvoiceNumber());
+                    invMap.put("status", inv.getXmlStatus());
+                    invMap.put("customerName", inv.getCustomerName() != null ? inv.getCustomerName() : "Cliente Não Identificado");
+
+                    List<Map<String, Object>> itemsList = new ArrayList<>();
+                    for (ReceivingItemEntity item : inv.getItems()) {
+                        Map<String, Object> itemMap = new HashMap<>();
+                        itemMap.put("materialCode", item.getMaterialCode());
+                        itemMap.put("description", item.getDescription());
+                        itemMap.put("noteQuantity", item.getNoteQuantity());
+                        itemMap.put("scannedQuantity", item.getScannedQuantity() != null ? item.getScannedQuantity() : 0);
+                        itemMap.put("batch", item.getBatch());
+
+                        itemsList.add(itemMap);
+
+                        // Soma para o progresso geral do romaneio
+                        totalItems += item.getNoteQuantity();
+                        scannedItems += (item.getScannedQuantity() != null ? item.getScannedQuantity() : 0);
+                    }
+                    invMap.put("items", itemsList);
+                    invoicesMap.add(invMap);
+                }
+
+                map.put("invoices", invoicesMap);
+                map.put("totalItems", totalItems);
+                map.put("scannedItems", scannedItems);
+
+                // Pega o nome do primeiro cliente para exibir na tabela principal
+                map.put("customerName", !allInvoices.isEmpty() ? allInvoices.get(0).getCustomerName() : "N/A");
+                map.put("nfNumber", !allInvoices.isEmpty() ? allInvoices.get(0).getInvoiceNumber() : "N/A");
+                map.put("totalVolumes", allInvoices.stream().mapToInt(inv -> inv.getVolumeQuantity() != null ? inv.getVolumeQuantity() : 0).sum());
+
+                response.add(map);
+            }
+
         }
 
+        return ResponseEntity.ok(response);
 
-        // Salva o romaneio (e as notas em cascata)
-        receivingRepository.saveAndFlush(receiving);
-        System.out.println(">>> FINALIZADO COM SUCESSO <<<");
-
-        return ResponseEntity.ok(Map.of("message", "Manifest " + manifest.getManifestCode() + " created successfully!"));
     }
 
 
@@ -113,55 +208,64 @@ public class ReceivingController {
         List<Map<String, Object>> response = new ArrayList<>();
 
         for (ManifestEntity manifest : manifests) {
-            Map<String, Object> map = new HashMap<>();
-            map.put("id", manifest.getId());
-            map.put("manifestCode", manifest.getManifestCode());
-            map.put("date", manifest.getCreatedAt() != null ? manifest.getCreatedAt().toString() : LocalDateTime.now().toString());
-
-            List<ReceivingInvoiceEntity> allInvoices = new ArrayList<>();
-
-            // AQUI ESTÁ A MÁGICA: Busca o Romaneio com o mesmo código do Manifesto
             String expectedReceivingCode = manifest.getManifestCode();
             Optional<ReceivingEntity> receivingOpt = receivingRepository.findByReceivingCode(expectedReceivingCode);
 
-            if (receivingOpt.isPresent()) {
+            if(receivingOpt.isPresent()) {
+                List<ReceivingInvoiceEntity> allInvoices = receivingOpt.get().getInvoices();
 
-                allInvoices.addAll(receivingOpt.get().getInvoices());
+
+                //filtro
+                List<ReceivingInvoiceEntity> pendinInvoices = allInvoices.stream()
+                        .filter(inv -> StatusEnum.WAITING_XML.equals(inv.getXmlStatus()))
+                        .collect(Collectors.toList());
+
+                if(pendinInvoices.isEmpty()) {
+                    continue;
+                }
+
+                Map<String, Object> map = new HashMap<>();
+                map.put("id", manifest.getId());
+                map.put("manifestCode", manifest.getManifestCode());
+                map.put("date" , manifest.getCreatedAt() != null ? manifest.getCreatedAt().toString() : LocalDateTime.now().toString());
+
+                int totalVolumes = pendinInvoices.stream().mapToInt(inv -> inv.getVolumeQuantity() != null ? inv.getVolumeQuantity() : 0).sum();
+                map.put("volumes", totalVolumes);
+
+
+                List<Map<String , Object>> invoicesMap = pendinInvoices.stream()
+                        .map(inv -> {
+                            Map<String, Object> invMap = new HashMap<>();
+                            invMap.put("invoiceNumber", inv.getInvoiceNumber());
+                            invMap.put("status" , inv.getXmlStatus());
+
+                            if(inv.getEvents() != null) {
+                                List<Map<String , Object>> eventMap = inv.getEvents().stream()
+                                        .map(e -> {
+                                            Map<String , Object> evMap = new HashMap<>();
+                                            evMap.put("date" , e.getEventDate().toString());
+                                            evMap.put("status" , e.getStatus());
+                                            evMap.put("message", e.getMessage());
+                                            evMap.put("user" , e.getUserName());
+
+                                            return evMap;
+                                        }).collect(Collectors.toList());
+
+                                invMap.put("historyEvents", eventMap);
+                            }
+
+                            return invMap;
+                        }).collect(Collectors.toList());
+
+                map.put("invoices", invoicesMap);
+
+                response.add(map);
             }
-
-            int totalVolumes = allInvoices.stream().mapToInt(inv -> inv.getVolumeQuantity() != null ? inv.getVolumeQuantity() : 0).sum();
-            map.put("volumes", totalVolumes);
-
-            List<Map<String, Object>> invoicesMap = allInvoices.stream()
-                    .map(inv -> {
-                        Map<String, Object> invMap = new HashMap<>();
-                        invMap.put("invoiceNumber", inv.getInvoiceNumber());
-                        invMap.put("status", inv.getXmlStatus());
-
-
-                        List<Map<String, Object>> eventMap = inv.getEvents().stream()
-                                .map(e -> {
-                                    Map<String, Object> evMap = new HashMap<>();
-                                    evMap.put("date", e.getEventDate().toString());
-                                    evMap.put("status", e.getStatus());
-                                    evMap.put("message", e.getMessage());
-                                    evMap.put("user", e.getUserName());
-                                    return evMap;
-                                })
-                                .collect(Collectors.toList());
-                        invMap.put("historyEvents", eventMap);
-
-
-                        return invMap;
-                    })
-                    .collect(Collectors.toList());
-
-
-            map.put("invoices", invoicesMap);
-            response.add(map);
         }
         return ResponseEntity.ok(response);
     }
+
+
     // ==========================================
     // 3. UPLOAD XML
     // ==========================================

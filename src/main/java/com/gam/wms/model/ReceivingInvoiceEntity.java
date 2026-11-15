@@ -26,6 +26,8 @@ public class ReceivingInvoiceEntity {
     @Column(name = "volume_quantity", nullable = false)
     private Integer volumeQuantity = 0; // Quantidade de caixas bipadas
 
+    private String customerName;
+
     @OneToMany(mappedBy = "receivingInvoice", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ReceivingItemEntity> items = new ArrayList<>();
 
@@ -56,6 +58,6 @@ public class ReceivingInvoiceEntity {
     public void setVolumeQuantity(Integer volumeQuantity) { this.volumeQuantity = volumeQuantity; }
     public List<ReceivingItemEntity> getItems() { return items; }
     public void setItems(List<ReceivingItemEntity> items) { this.items = items; }
-
-
+    public String getCustomerName() {return customerName;}
+    public void setCustomerName(String customerName) {this.customerName = customerName;}
 }
